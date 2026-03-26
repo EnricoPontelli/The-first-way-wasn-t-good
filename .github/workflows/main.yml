@@ -1,0 +1,35 @@
+name: Monitor de Energia CCEE
+
+on:
+  schedule:
+    # Roda a cada 2 horas (Formato Cron)
+    - cron: '0 */2 * * *' 
+  workflow_dispatch: # Permite que você rode o robô clicando em um botão
+
+jobs:
+  job_monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar codigo do repositorio
+        uses: actions/checkout@v3
+
+      - name: Configurar o Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Instalar Playwright e Dependencias
+        run: |
+          pip install playwright pandas
+          playwright install chromium
+
+      - name: Executar Script de Captura
+        run: python script_energia.py
+
+      - name: Salvar dados capturados no Github
+        run: |
+          git config --global user.name 'EnergyBot'
+          git config --global user.email 'bot@github.com'
+          git add .
+          git commit -m "Auto-update: $(date)" || exit 0
+          git push
