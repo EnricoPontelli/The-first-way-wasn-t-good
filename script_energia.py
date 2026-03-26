@@ -6,48 +6,66 @@ import time
 
 def capturar_pld():
     with sync_playwright() as p:
-        # Inicia o navegador (headless=True para o GitHub Actions)
+        # Abre o navegador
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         
-        print("Acessando o site da CCEE...")
+        print("Acessando CCEE (Painel de Preços)...")
         url = "https://www.ccee.org.br/en/web/guest/precos/painel-precos"
-        page.goto(url, wait_until="networkidle")
         
-        # O Power BI demora a carregar. Vamos esperar 15 segundos extras.
-        time.sleep(15)
-        
-        # Tentativa de capturar o valor dentro dos cartões do Power BI
-        # Nota: O seletor 'text' busca o valor que aparece na tela.
         try:
-            # Procuramos por elementos que contenham valores de moeda (R$)
-            # ou seletores específicos do dashboard
-            valor_pld = page.locator('text=/R\$\s?\d+/').first.inner_text()
-            print(f"Valor encontrado: {valor_pld}")
-        except:
-            valor_pld = "N/A"
-            print("Não foi possível localizar o valor no tempo esperado.")
+            # 1. Navega até a URL
+            page.goto(url, wait_until="load", timeout=90000)
+            
+            # 2. O Power BI da CCEE fica dentro de iframes. 
+            # Vamos esperar o frame principal do relatório aparecer.
+            print("Aguardando os gráficos do Power BI...")
+            page.wait_for_selector("iframe", timeout=60000)
+            
+            # 3. Dá um tempo generoso para o banco de dados da CCEE responder
+            time.sleep(40) 
+            
+            # 4. Tenta capturar qualquer valor que pareça preço (formato XX,XX)
+            # Vamos buscar por seletores de "visual" do Power BI
+            content = page.content()
+            
+            # Buscamos por valores dentro das tags de texto do Power BI
+            # O PLD geralmente está em elementos com a classe 'visual-card'
+            card_values = page.locator(".cardValue, .visual-card").all_inner_texts()
+            
+            if not card_values:
+                # Se não achou por classe, tenta por texto que contenha vírgula (preço)
+                valor_pld = page.get_by_text(",").first.inner_text()
+            else:
+                valor_pld = card_values[0]
+
+            status_captura = "Sucesso"
+            print(f"Valor Extraído: {valor_pld}")
+
+        except Exception as e:
+            print(f"Erro: {e}")
+            valor_pld = "0.00"
+            status_captura = "Erro no Carregamento"
 
         browser.close()
         
-        # Preparação dos dados para o seu DRE
+        # Salvando para o seu DRE e Eficiência Logística
         agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         dados = {
             "Data": [agora],
             "PLD_Valor": [valor_pld.replace("R$", "").strip()],
-            "Status": ["Fixos / sem danos" if valor_pld != "N/A" else "Erro"]
+            "Status": [status_captura]
         }
         
         df = pd.DataFrame(dados)
         arquivo = 'historico_pld.csv'
         
-        # Salva mantendo o histórico
         if os.path.isfile(arquivo):
             df.to_csv(arquivo, mode='a', index=False, header=False)
         else:
             df.to_csv(arquivo, index=False, header=True)
         
-        print("Dados salvos no CSV.")
+        print("Log atualizado no GitHub.")
 
 if __name__ == "__main__":
     capturar_pld()
